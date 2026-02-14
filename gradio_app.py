@@ -1,4 +1,28 @@
 import os
+import sys
+
+# --- PATCH: Fix alpha_clip import error "from pkg_resources import packaging" ---
+import packaging.version
+import pkg_resources
+pkg_resources.packaging = packaging
+
+# --- PATCH: Fix gradio_client schema serialization error (bool has no attribute get) ---
+# This patches gradio_client.utils.get_type and _json_schema_to_python_type
+import gradio_client.utils
+original_get_type = gradio_client.utils.get_type
+def patched_get_type(schema: dict):
+    if isinstance(schema, bool):
+        return {}
+    return original_get_type(schema)
+gradio_client.utils.get_type = patched_get_type
+
+original_json_schema_to_python_type = gradio_client.utils._json_schema_to_python_type
+def patched_json_schema_to_python_type(schema: any, defs):
+    if isinstance(schema, bool):
+        return "Any"
+    return original_json_schema_to_python_type(schema, defs)
+gradio_client.utils._json_schema_to_python_type = patched_json_schema_to_python_type
+# -----------------------------------------------------------------------------
 import random
 import tempfile
 import time
@@ -525,350 +549,207 @@ def update_resolution_controls(remesh_choice, vertex_count_type):
     )
 
 
-with gr.Blocks() as demo:
+# --- Custom Theme & CSS ---
+theme = gr.themes.Soft(
+    primary_hue="indigo",
+    secondary_hue="blue",
+    neutral_hue="slate",
+).set(
+    body_background_fill="*neutral_950",
+    block_background_fill="*neutral_900",
+    block_border_width="1px",
+    block_border_color="*neutral_800",
+    button_primary_background_fill="linear-gradient(90deg, *primary_600, *secondary_600)",
+    button_primary_background_fill_hover="linear-gradient(90deg, *primary_500, *secondary_500)",
+    button_primary_text_color="white",
+    slider_color="*primary_500",
+    block_title_text_weight="600",
+    block_label_text_weight="600",
+    block_shadow="*shadow_drop_lg",
+    button_shadow="*shadow_drop_lg",
+)
+
+custom_css = """
+body {
+    background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0f172a 100%);
+}
+.gradio-container {
+    max-width: 1400px !important;
+}
+/* Glowing Button Effect */
+#run_btn {
+    box-shadow: 0 0 15px #6366f1;
+    transition: all 0.3s ease;
+}
+#run_btn:hover {
+    box-shadow: 0 0 25px #818cf8;
+    transform: scale(1.02);
+}
+/* Gradient Text for Title */
+.logo-text h1 {
+    background: linear-gradient(to right, #818cf8, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+    text-align: center;
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+}
+/* Glassmorphism Panels */
+.group {
+    background: rgba(30, 41, 59, 0.4) !important;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+"""
+
+with gr.Blocks(theme=theme, css=custom_css, title="SPAR3D Studio") as demo:
     img_proc_state = gr.State()
     background_remove_state = gr.State()
     hdr_illumination_file_state = gr.State()
-    gr.Markdown(
-        """
-    # SPAR3D: Stable Point-Aware Reconstruction of 3D Objects from Single Images
 
-    SPAR3D is a state-of-the-art method for 3D mesh reconstruction from a single image. This demo allows you to upload an image and generate a 3D mesh model from it. A feature of SPAR3D is it generates point clouds as intermediate representation before producing the mesh. You can edit the point cloud to adjust the final mesh. We provide a simple point cloud editor in this demo, where you can drag, recolor and rescale the point clouds. If you have more advanced editing needs (e.g. box selection, duplication, local streching, etc.), you can download the point cloud and edit it in softwares such as MeshLab or Blender. The edited point cloud can then be uploaded to this demo to generate a new 3D model by checking the "Point cloud upload" box.
+    with gr.Column(elem_classes="logo-text"):
+        gr.Markdown("# 🌌 SPAR3D Studio")
 
-    **Tips**
+    with gr.Accordion("ℹ️ About & Tips", open=False):
+        gr.Markdown(
+            """
+            **SPAR3D** generates high-quality 3D meshes from single images using point clouds as an intermediate representation.
 
-    1. If the image does not have a valid alpha channel, it will go through the background removal step. Our built-in background removal can be inaccurate sometimes, which will result in poor mesh quality. In such cases, you can use external background removal tools to obtain a RGBA image before uploading here.
-    2. You can adjust the foreground ratio to control the size of the foreground object. This may have major impact on the final mesh.
-    3. Guidance scale controls the strength of the image condition in the point cloud generation process. A higher value may result in higher mesh fidelity, but the variability by changing the random seed will be lower. Note that the guidance scale and the seed are not effective when the point cloud is manually uploaded.
-    4. Our online editor supports multi-selection by holding down the shift key. This allows you to recolor multiple points at once.
-    5. The editing should mainly alter the unseen parts of the object. Visible parts can be edited, but the edits should be consistent with the image. Editing the visible parts in a way that contradicts the image may result in poor mesh quality.
-    6. You can upload your own HDR environment map to light the 3D model.
-    """
-    )
-    with gr.Row(variant="panel"):
-        with gr.Column():
+            **How to use:**
+            1. Upload an image (RGBA preferred).
+            2. Adjust settings if needed (Foreground Ratio, Guidance Scale).
+            3. Click **Generate 3D Model**.
+            4. Edit the point cloud or background if results aren't perfect.
+
+            **Tips:**
+            - Use images with transparent backgrounds for best results.
+            - "Guidance Scale" controls how much the image influences the point cloud.
+            - You can upload your own HDR map for lighting.
+            """
+        )
+
+    with gr.Row():
+        # --- Left Column: Inputs & Controls ---
+        with gr.Column(scale=1):
+            with gr.Tabs():
+                with gr.Tab("🚀 Generate"):
+                    input_img = gr.Image(type="pil", label="Input Image", sources=["upload"], image_mode="RGBA", height=320)
+
+                    run_btn = gr.Button("✨ Generate 3D Model", variant="primary", visible=False, elem_id="run_btn")
+
+                    with gr.Accordion("⚙️ Advanced Settings", open=False):
+                        gr.Markdown("### Pre-processing")
+                        with gr.Row():
+                            no_crop = gr.Checkbox(label="Disable Cropping", value=False)
+                            foreground_ratio = gr.Slider(label="Foreground Ratio", minimum=1.0, maximum=2.0, value=1.3, step=0.05)
+
+                        gr.Markdown("### Generation Parameters")
+                        with gr.Row():
+                            guidance_scale = gr.Slider(label="Guidance Scale", minimum=1.0, maximum=10.0, value=3.0, step=1.0)
+                            random_seed = gr.Slider(label="Seed", minimum=0, maximum=10000, value=0, step=1)
+
+                        gr.Markdown("### Remeshing & Texture")
+                        no_remesh = not TRIANGLE_REMESH_AVAILABLE and not QUAD_REMESH_AVAILABLE
+                        remesh_choices = ["None"]
+                        if TRIANGLE_REMESH_AVAILABLE: remesh_choices.append("Triangle")
+                        if QUAD_REMESH_AVAILABLE: remesh_choices.append("Quad")
+
+                        remesh_option = gr.Radio(choices=remesh_choices, label="Remeshing method", value="None", visible=not no_remesh)
+
+                        vertex_count_type = gr.Radio(choices=["Keep Vertex Count","Target Vertex Count","Target Face Count"], label="Mesh Resolution Control", value="Keep Vertex Count", visible=False)
+                        vertex_count_slider = gr.Slider(label="Target Count", minimum=0, maximum=20000, value=2000, visible=False)
+                        texture_size = gr.Slider(label="Texture Size", minimum=512, maximum=2048, value=1024, step=256)
+
+                        # Remesh callbacks
+                        remesh_option.change(update_resolution_controls, inputs=[remesh_option, vertex_count_type], outputs=[vertex_count_type, vertex_count_slider])
+                        vertex_count_type.change(update_resolution_controls, inputs=[remesh_option, vertex_count_type], outputs=[vertex_count_type, vertex_count_slider])
+
+                with gr.Tab("🎨 Edit & Refine"):
+                    gr.Markdown("### Background Removal")
+                    preview_removal = gr.Image(label="Preview", type="pil", image_mode="RGB", interactive=False, visible=False)
+
+                    gr.Markdown("### Point Cloud Customization")
+                    pc_upload = gr.Checkbox(label="Use Custom Point Cloud", value=False)
+                    pc_cond_file = gr.File(label="Upload .ply", file_types=[".ply"], file_count="single", visible=False)
+                    regenerate_btn = gr.Button("♻️ Re-run with Point Cloud", variant="secondary", visible=False)
+
+                    pc_upload.change(lambda x: gr.update(visible=x), inputs=pc_upload, outputs=[pc_cond_file])
+
+
+        # --- Right Column: Outputs ---
+        with gr.Column(scale=2):
+            output_3d = LitModel3D(label="3D Model Viewer", clear_color=[0.0, 0.0, 0.0, 0.0], tonemapping="aces", contrast=1.0, scale=1.0, visible=False)
+
             with gr.Row():
-                input_img = gr.Image(
-                    type="pil", label="Input Image", sources="upload", image_mode="RGBA"
-                )
-                preview_removal = gr.Image(
-                    label="Preview Background Removal",
-                    type="pil",
-                    image_mode="RGB",
-                    interactive=False,
-                    visible=False,
-                )
+                download_all_btn = gr.File(label="📦 Download ZIP", file_count="single", visible=False)
+                pc_download = gr.File(label="☁️ Download Point Cloud", file_count="single", visible=False)
 
-            gr.Markdown("### Input Controls")
-            with gr.Group():
-                with gr.Row():
-                    no_crop = gr.Checkbox(label="No cropping", value=False)
-                    pc_upload = gr.Checkbox(label="Point cloud upload", value=False)
+            with gr.Accordion("☁️ Point Cloud Editor", open=False, visible=False) as point_cloud_row:
+                point_size_slider = gr.Slider(label="Point Size", minimum=0.01, maximum=1.0, value=0.2, step=0.01)
+                point_cloud_editor = PointCloudEditor(up_axis="Z", forward_axis="X", lock_scale_z=True, lock_scale_y=True, visible=True)
+                point_size_slider.change(fn=lambda x: gr.update(point_size=x), inputs=point_size_slider, outputs=point_cloud_editor)
+                point_cloud_editor.edit(fn=lambda _x: gr.update(visible=True), inputs=point_cloud_editor, outputs=regenerate_btn)
 
-                pc_cond_file = gr.File(
-                    label="Point Cloud Upload",
-                    file_types=[".ply"],
-                    file_count="single",
-                    visible=False,
-                )
+            with gr.Accordion("💡 Lighting (HDR)", open=False, visible=False) as hdr_row:
+                hdr_illumination_file = gr.File(label="Upload HDR", file_types=[".hdr"], file_count="single")
 
-                foreground_ratio = gr.Slider(
-                    label="Padding Ratio",
-                    minimum=1.0,
-                    maximum=2.0,
-                    value=1.3,
-                    step=0.05,
-                )
+                # HDR Example logic
+                example_hdris = [os.path.join("demo_files/hdri", f) for f in os.listdir("demo_files/hdri")]
+                hdr_illumination_example = gr.Examples(examples=example_hdris, inputs=hdr_illumination_file)
 
-            pc_upload.change(
-                lambda x: gr.update(visible=x),
-                inputs=pc_upload,
-                outputs=[pc_cond_file],
-            )
+                def update_hdr_illumination_file(state, cur_update):
+                    if (hdr_illumination_file.value is not None and hdr_illumination_file.value == cur_update):
+                        return (gr.update(), gr.update())
+                    update_value = cur_update if cur_update is not None else state
+                    if update_value is not None:
+                        return (gr.update(value=update_value), gr.update(env_map=(update_value.name if isinstance(update_value, gr.File) else update_value)))
+                    return (gr.update(value=None), gr.update(env_map=None))
 
-            no_crop.change(
-                update_foreground_ratio,
-                inputs=[img_proc_state, foreground_ratio, no_crop],
-                outputs=[background_remove_state, preview_removal],
-            )
+                hdr_illumination_file.change(update_hdr_illumination_file, inputs=[hdr_illumination_file_state, hdr_illumination_file], outputs=[hdr_illumination_file, output_3d])
+                hdr_illumination_file_state.change(fn=lambda x: gr.update(value=x), inputs=hdr_illumination_file_state, outputs=hdr_illumination_file)
 
-            foreground_ratio.change(
-                update_foreground_ratio,
-                inputs=[img_proc_state, foreground_ratio, no_crop],
-                outputs=[background_remove_state, preview_removal],
-            )
+    # --- Footer Examples ---
+    gr.Examples(examples=example_files, inputs=input_img, examples_per_page=5, label="Try these examples")
 
-            gr.Markdown("### Point Diffusion Controls")
-            with gr.Group():
-                guidance_scale = gr.Slider(
-                    label="Guidance Scale",
-                    minimum=1.0,
-                    maximum=10.0,
-                    value=3.0,
-                    step=1.0,
-                )
+    # --- Main Callbacks ---
+    main_outputs = [
+        run_btn,
+        img_proc_state,
+        background_remove_state,
+        preview_removal,
+        output_3d,
+        hdr_row,
+        hdr_illumination_file_state,
+        point_cloud_row, # Using the Accordion as the row visibility toggle
+        point_cloud_editor,
+        pc_download,
+        regenerate_btn,
+        download_all_btn,
+    ]
 
-                random_seed = gr.Slider(
-                    label="Seed",
-                    minimum=0,
-                    maximum=10000,
-                    value=0,
-                    step=1,
-                )
+    input_img.change(requires_bg_remove, inputs=[input_img, foreground_ratio, no_crop], outputs=main_outputs)
 
-            no_remesh = not TRIANGLE_REMESH_AVAILABLE and not QUAD_REMESH_AVAILABLE
-            gr.Markdown(
-                "### Texture Controls"
-                if no_remesh
-                else "### Meshing and Texture Controls"
-            )
-            with gr.Group():
-                remesh_choices = ["None"]
-                if TRIANGLE_REMESH_AVAILABLE:
-                    remesh_choices.append("Triangle")
-                if QUAD_REMESH_AVAILABLE:
-                    remesh_choices.append("Quad")
+    no_crop.change(update_foreground_ratio, inputs=[img_proc_state, foreground_ratio, no_crop], outputs=[background_remove_state, preview_removal])
+    foreground_ratio.change(update_foreground_ratio, inputs=[img_proc_state, foreground_ratio, no_crop], outputs=[background_remove_state, preview_removal])
 
-                remesh_option = gr.Radio(
-                    choices=remesh_choices,
-                    label="Remeshing",
-                    value="None",
-                    visible=not no_remesh,
-                )
-
-                vertex_count_type = gr.Radio(
-                    choices=[
-                        "Keep Vertex Count",
-                        "Target Vertex Count",
-                        "Target Face Count",
-                    ],
-                    label="Mesh Resolution Control",
-                    value="Keep Vertex Count",
-                    visible=False,
-                )
-
-                vertex_count_slider = gr.Slider(
-                    label="Target Count",
-                    minimum=0,
-                    maximum=20000,
-                    value=2000,
-                    visible=False,
-                )
-
-                texture_size = gr.Slider(
-                    label="Texture Size",
-                    minimum=512,
-                    maximum=2048,
-                    value=1024,
-                    step=256,
-                    visible=True,
-                )
-
-            remesh_option.change(
-                update_resolution_controls,
-                inputs=[remesh_option, vertex_count_type],
-                outputs=[vertex_count_type, vertex_count_slider],
-            )
-
-            vertex_count_type.change(
-                update_resolution_controls,
-                inputs=[remesh_option, vertex_count_type],
-                outputs=[vertex_count_type, vertex_count_slider],
-            )
-
-            run_btn = gr.Button("Run", variant="primary", visible=False)
-
-        with gr.Column():
-            with gr.Group(visible=False) as point_cloud_row:
-                point_size_slider = gr.Slider(
-                    label="Point Size",
-                    minimum=0.01,
-                    maximum=1.0,
-                    value=0.2,
-                    step=0.01,
-                )
-                point_cloud_editor = PointCloudEditor(
-                    up_axis="Z",
-                    forward_axis="X",
-                    lock_scale_z=True,
-                    lock_scale_y=True,
-                    visible=True,
-                )
-
-                pc_download = gr.File(
-                    label="Point Cloud Download",
-                    file_types=[".ply"],
-                    file_count="single",
-                )
-            point_size_slider.change(
-                fn=lambda x: gr.update(point_size=x),
-                inputs=point_size_slider,
-                outputs=point_cloud_editor,
-            )
-
-            regenerate_btn = gr.Button(
-                "Re-run with point cloud", variant="primary", visible=False
-            )
-
-            output_3d = LitModel3D(
-                label="3D Model",
-                visible=False,
-                clear_color=[0.0, 0.0, 0.0, 0.0],
-                tonemapping="aces",
-                contrast=1.0,
-                scale=1.0,
-            )
-            with gr.Column(visible=False, scale=1.0) as hdr_row:
-                gr.Markdown(
-                    """## HDR Environment Map
-
-                Select an HDR environment map to light the 3D model. You can also upload your own HDR environment maps.
-                """
-                )
-
-                with gr.Row():
-                    hdr_illumination_file = gr.File(
-                        label="HDR Env Map",
-                        file_types=[".hdr"],
-                        file_count="single",
-                    )
-                    example_hdris = [
-                        os.path.join("demo_files/hdri", f)
-                        for f in os.listdir("demo_files/hdri")
-                    ]
-                    hdr_illumination_example = gr.Examples(
-                        examples=example_hdris,
-                        inputs=hdr_illumination_file,
-                    )
-
-                    def update_hdr_illumination_file(state, cur_update):
-                        # If the current value of hdr_illumination_file is the same as cur_update, then we don't need to update
-                        if (
-                            hdr_illumination_file.value is not None
-                            and hdr_illumination_file.value == cur_update
-                        ):
-                            return (
-                                gr.update(),
-                                gr.update(),
-                            )
-                        update_value = cur_update if cur_update is not None else state
-                        if update_value is not None:
-                            return (
-                                gr.update(value=update_value),
-                                gr.update(
-                                    env_map=(
-                                        update_value.name
-                                        if isinstance(update_value, gr.File)
-                                        else update_value
-                                    )
-                                ),
-                            )
-                        return (gr.update(value=None), gr.update(env_map=None))
-
-                    hdr_illumination_file.change(
-                        update_hdr_illumination_file,
-                        inputs=[hdr_illumination_file_state, hdr_illumination_file],
-                        outputs=[hdr_illumination_file, output_3d],
-                    )
-
-            download_all_btn = gr.File(
-                label="Download All Files (ZIP)", file_count="single", visible=False
-            )
-
-    hdr_illumination_file_state.change(
-        fn=lambda x: gr.update(value=x),
-        inputs=hdr_illumination_file_state,
-        outputs=hdr_illumination_file,
-    )
-
-    examples = gr.Examples(
-        examples=example_files, inputs=input_img, examples_per_page=11
-    )
-
-    input_img.change(
-        requires_bg_remove,
-        inputs=[input_img, foreground_ratio, no_crop],
-        outputs=[
-            run_btn,
-            img_proc_state,
-            background_remove_state,
-            preview_removal,
-            output_3d,
-            hdr_row,
-            hdr_illumination_file_state,
-            point_cloud_row,
-            point_cloud_editor,
-            pc_download,
-            regenerate_btn,
-            download_all_btn,
+    run_btn.click(
+        run_button,
+        inputs=[
+            run_btn, input_img, background_remove_state, foreground_ratio, no_crop,
+            guidance_scale, random_seed, pc_upload, pc_cond_file, remesh_option,
+            vertex_count_type, vertex_count_slider, texture_size
         ],
-    )
-
-    point_cloud_editor.edit(
-        fn=lambda _x: gr.update(visible=True),
-        inputs=point_cloud_editor,
-        outputs=regenerate_btn,
+        outputs=main_outputs
     )
 
     regenerate_btn.click(
         regenerate_run,
         inputs=[
-            background_remove_state,
-            guidance_scale,
-            random_seed,
-            point_cloud_editor,
-            remesh_option,
-            vertex_count_type,
-            vertex_count_slider,
-            texture_size,
+            background_remove_state, guidance_scale, random_seed, point_cloud_editor,
+            remesh_option, vertex_count_type, vertex_count_slider, texture_size
         ],
-        outputs=[
-            run_btn,
-            img_proc_state,
-            background_remove_state,
-            preview_removal,
-            output_3d,
-            hdr_row,
-            hdr_illumination_file_state,
-            point_cloud_row,
-            point_cloud_editor,
-            pc_download,
-            regenerate_btn,
-            download_all_btn,
-        ],
+        outputs=main_outputs
     )
 
-    run_btn.click(
-        run_button,
-        inputs=[
-            run_btn,
-            input_img,
-            background_remove_state,
-            foreground_ratio,
-            no_crop,
-            guidance_scale,
-            random_seed,
-            pc_upload,
-            pc_cond_file,
-            remesh_option,
-            vertex_count_type,
-            vertex_count_slider,
-            texture_size,
-        ],
-        outputs=[
-            run_btn,
-            img_proc_state,
-            background_remove_state,
-            preview_removal,
-            output_3d,
-            hdr_row,
-            hdr_illumination_file_state,
-            point_cloud_row,
-            point_cloud_editor,
-            pc_download,
-            regenerate_btn,
-            download_all_btn,
-        ],
-    )
-
-demo.queue().launch(share=False)
+demo.queue().launch(share=True, server_name="0.0.0.0", server_port=7861)

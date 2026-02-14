@@ -133,3 +133,15 @@ Additionally the target vertex or face count can be specified. This is not a har
   year={2025}
 }
 ```
+
+## 🎨 SPAR3D Studio UI
+
+This repository includes a redesigned **"Midnight Studio"** Gradio interface () featuring:
+- **Dark Theme:** Custom soft theme with indigo accents and gradient backgrounds.
+- **Improved Layout:** Tabbed interface for Generation vs Editing, and collapsible advanced settings.
+- **Dependency Patches:** Built-in fixes for  and  compatibility issues (no manual patching required).
+
+To run the new UI:
+```bash
+python gradio_app.py
+```

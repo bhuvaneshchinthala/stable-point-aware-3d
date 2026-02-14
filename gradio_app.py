@@ -603,13 +603,14 @@ body {
 }
 """
 
-with gr.Blocks(theme=theme, css=custom_css, title="SPAR3D Studio") as demo:
+with gr.Blocks(theme=theme, css=custom_css, title="SPAR3D Studio by Bhuvanesh Chinthala") as demo:
     img_proc_state = gr.State()
     background_remove_state = gr.State()
     hdr_illumination_file_state = gr.State()
 
     with gr.Column(elem_classes="logo-text"):
         gr.Markdown("# 🌌 SPAR3D Studio")
+        gr.Markdown("### 🚀 Enhanced & Developed by **Bhuvanesh Chinthala**")
 
     with gr.Accordion("ℹ️ About & Tips", open=False):
         gr.Markdown(

@@ -1,4 +1,5 @@
 # SPAR3D: Stable Point-Aware Reconstruction of 3D Objects from Single Images
+> **Project Enhanced & Deployed by [Bhuvanesh Chinthala](https://github.com/bhuvaneshchinthala)** 🚀
 
 <a href="https://arxiv.org/abs/2501.04689"><img src="https://img.shields.io/badge/Arxiv-2501.04689-B31B1B.svg"></a> <a href="https://huggingface.co/stabilityai/stable-point-aware-3d"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Model_Card-Huggingface-orange"></a> <a href="https://huggingface.co/spaces/stabilityai/stable-point-aware-3d"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Gradio%20Demo-Huggingface-orange"></a>
 

@@ -1,7 +1,7 @@
-# SPAR3D: Stable Point-Aware Reconstruction of 3D Objects from Single Images
-> **Project Enhanced & Deployed by [Bhuvanesh Chinthala](https://github.com/bhuvaneshchinthala)** 🚀
+# SPAR3D: Stable Point-Aware Reconstruction of 3D Objects
+# 🚀 Developed & Enhanced by [Bhuvanesh Chinthala](https://github.com/bhuvaneshchinthala)
 
-<a href="https://arxiv.org/abs/2501.04689"><img src="https://img.shields.io/badge/Arxiv-2501.04689-B31B1B.svg"></a> <a href="https://huggingface.co/stabilityai/stable-point-aware-3d"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Model_Card-Huggingface-orange"></a> <a href="https://huggingface.co/spaces/stabilityai/stable-point-aware-3d"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Gradio%20Demo-Huggingface-orange"></a>
+This project, developed by **Bhuvanesh Chinthala**, implements state-of-the-art 3D mesh reconstruction from single images. It features a custom "Midnight Studio" interface and optimized performance.
 
 <div align="center">
   <img src="demo_files/turntable.gif" alt="Teaser">
@@ -9,7 +9,7 @@
 
 <br>
 
-This is the official codebase for **SPAR3D**, a state-of-the-art open-source model for **fast** feedforward 3D mesh reconstruction from a single image using a point cloud conditioning to improve the quality of the reconstruction.
+This is the codebase for **SPAR3D**, enhanced for **fast** feedforward 3D mesh reconstruction.
 
 <br>
 
